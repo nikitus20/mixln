@@ -1,5 +1,6 @@
 torch
 transformers==4.31.0
+tensorly
 tokenizers
 datasets
 peft
