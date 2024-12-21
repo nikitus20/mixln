@@ -127,4 +127,11 @@ This repository is built upon the [GaLore](https://github.com/jiaweizzhao/GaLore
 ## Citation
 If you find our work helpful for your research, please consider citing the following BibTeX entry.
 ```
+@article{li2024mix,
+  title={Mix-LN: Unleashing the Power of Deeper Layers by Combining Pre-LN and Post-LN},
+  author={Li, Pengxiang and Yin, Lu and Liu, Shiwei},
+  journal={arXiv preprint arXiv:2412.13795},
+  year={2024}
+}
+
 ```
