@@ -120,18 +120,109 @@ python layer_remove.py \
     --save_path ./llama_7b_removed_1
 ```
 
+# Transformer Normalization Analysis Toolkit
 
-### Acknowledgement
-This repository is built upon the [GaLore](https://github.com/jiaweizzhao/GaLore) repositories. Thanks for their great work!
+A toolkit for analyzing and comparing different layer normalization strategies in transformer models. This project provides tools to track token metrics like representation norms, update norms, and cosine similarities, as well as gradient behavior across different normalization techniques.
 
-## Citation
-If you find our work helpful for your research, please consider citing the following BibTeX entry.
+## Features
+
+- **Comprehensive metrics tracking**: Analyze token representation and gradient behavior across layers
+- **Multi-normalization comparison**: Compare Pre-LN, Post-LN, Mix-LN, and other normalization strategies
+- **Cross-model analysis**: Compare metrics across different model sizes
+- **Visual analysis**: Generate detailed plots for all metrics
+- **Recommendations**: Automatically generate performance recommendations
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/transformer-norm-analysis.git
+cd transformer-norm-analysis
 ```
-@article{li2024mix,
-  title={Mix-LN: Unleashing the Power of Deeper Layers by Combining Pre-LN and Post-LN},
-  author={Li, Pengxiang and Yin, Lu and Liu, Shiwei},
-  journal={arXiv preprint arXiv:2412.13795},
-  year={2024}
-}
 
+2. Install the requirements:
+```bash
+pip install -r requirements.txt
 ```
+
+3. Ensure you have the Mix-LN implementation from the original repository. The analyzer works with the code structure from [Mix-LN](https://github.com/user-attachments/assets/365b571d-1004-4fff-8878-9af1374da057).
+
+## Quick Start
+
+Run analysis on a model with the default settings:
+
+```bash
+./run.sh
+```
+
+This will analyze the 71M parameter LLaMA model with different normalization techniques and save the results to a timestamped directory.
+
+## Usage
+
+### Basic Usage
+
+Run analysis on a specific model size:
+
+```bash
+./run.sh --model 71m --samples 30
+```
+
+Available model sizes: 9m, 20m, 35m, 40m, 60m, 71m, 100m, 130m, 250m, 350m, 1b, 3b, 7b
+
+### Skip Gradient Computation
+
+For faster analysis (without gradient metrics):
+
+```bash
+./run.sh --model 71m --skip-gradients
+```
+
+### Compare Models
+
+Compare metrics across different model sizes:
+
+```bash
+python compare.py --all --comprehensive
+```
+
+Or compare a specific metric and normalization type:
+
+```bash
+python compare.py --all --norm_type "Mix-LN (3)" --metric gradient_norms
+```
+
+## Files
+
+- `analyzer.py`: Main analysis script for transformer models
+- `run.sh`: Convenient launcher script
+- `compare.py`: Tool for cross-model analysis
+
+## Example Output
+
+The toolkit generates:
+
+1. Detailed metric plots showing layer-by-layer behavior
+2. Comparison plots across model sizes
+3. Recommendations for optimal normalization techniques
+4. Summary reports with key findings
+
+## Metrics Explained
+
+- **Token Norms**: Average L2 norm of token representations
+- **Update Norms**: How much token representations change between layers
+- **Cosine Similarities**: How similar tokens are to each other
+- **Gradient Norms**: Magnitude of gradients flowing through the network
+- **Weight Update Ratios**: How much weights would change relative to current values
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- This work builds on the [Mix-LN](https://arxiv.org/pdf/2412.13795v1) implementation
+- Thanks to the original authors for releasing their code
