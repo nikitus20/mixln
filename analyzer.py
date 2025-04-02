@@ -208,7 +208,7 @@ class TransformerLayerAnalyzer:
         self._compute_token_metrics()
         self._compute_gradient_metrics()
     
-    def process_dataset(self, n_samples=50, max_seq_len=512, batch_size=4):
+    def process_dataset(self, n_samples=50, max_seq_len=512, batch_size=4, use_local=False, local_path="small_c4"):
         """
         Process samples from the C4 dataset
         
@@ -216,9 +216,33 @@ class TransformerLayerAnalyzer:
             n_samples (int): Number of samples to process
             max_seq_len (int): Maximum sequence length
             batch_size (int): Batch size for processing
+            use_local (bool): Whether to use the local dataset
+            local_path (str): Path to the local dataset
         """
-        # Load dataset
-        data = load_dataset("allenai/c4", "en", split="train", streaming=True)
+        # Load dataset - either local or from HuggingFace
+        if use_local:
+            print(f"Loading local dataset from {local_path}")
+            try:
+                # Load from local path using arrow files
+                data = load_dataset(
+                    'arrow', 
+                    data_files={
+                        'train': f'{local_path}/train/data-00000-of-00001.arrow',
+                        'validation': f'{local_path}/validation/data-00000-of-00001.arrow',
+                        'test': f'{local_path}/test/data-00000-of-00001.arrow'
+                    },
+                    split="train"
+                )
+                # Convert to streaming dataset for consistency with non-local path
+                data = data.to_iterable_dataset()
+            except Exception as e:
+                print(f"Error loading local dataset: {str(e)}")
+                print("Falling back to HuggingFace C4 dataset")
+                data = load_dataset("allenai/c4", "en", split="train", streaming=True)
+        else:
+            # Load from HuggingFace
+            data = load_dataset("allenai/c4", "en", split="train", streaming=True)
+        
         data = data.shuffle(seed=42)
         
         samples_processed = 0
@@ -226,27 +250,34 @@ class TransformerLayerAnalyzer:
         
         # Process dataset in batches
         for example in tqdm(data, desc=f"Processing {self.norm_type}"):
-            # Tokenize the text
-            tokenized = self.tokenizer(
-                example["text"],
-                max_length=max_seq_len,
-                truncation=True,
-                padding="max_length",
-                return_tensors="pt"
-            )
-            
-            current_batch.append(tokenized["input_ids"])
-            
-            # Process batch when it reaches the desired size
-            if len(current_batch) == batch_size:
-                batch_tensor = torch.cat(current_batch, dim=0)
-                self.compute_metrics(batch_tensor)
-                current_batch = []
-                samples_processed += batch_size
-            
-            # Stop after processing enough samples
-            if samples_processed >= n_samples:
-                break
+            try:
+                # Tokenize the text
+                tokenized = self.tokenizer(
+                    example["text"],
+                    max_length=max_seq_len,
+                    truncation=True,
+                    padding="max_length",
+                    return_tensors="pt"
+                )
+                
+                current_batch.append(tokenized["input_ids"])
+                
+                # Process batch when it reaches the desired size
+                if len(current_batch) == batch_size:
+                    batch_tensor = torch.cat(current_batch, dim=0)
+                    self.compute_metrics(batch_tensor)
+                    current_batch = []
+                    samples_processed += batch_size
+                
+                # Stop after processing enough samples
+                if samples_processed >= n_samples:
+                    break
+            except KeyError as e:
+                print(f"Skipping an example due to missing key: {str(e)}")
+                continue
+            except Exception as e:
+                print(f"Error processing example: {str(e)}")
+                continue
         
         # Process any remaining samples
         if current_batch:
@@ -452,11 +483,14 @@ def main():
                         help='Directory to save plots and metrics')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
                         help='Device to run on')
-        # Add these to the argument parser in your analyzer.py
     parser.add_argument('--norm_type', type=str, default="pre",
-                    help='Normalization type (pre, post, post_pre, deeppost, sandwich)')
+                        help='Normalization type (pre, post, post_pre, deeppost, sandwich)')
     parser.add_argument('--post_num', type=int, default=None,
-                    help='Number of Post-LN layers for Mix-LN')
+                        help='Number of Post-LN layers for Mix-LN')
+    parser.add_argument('--local', action='store_true',
+                        help='Use local small_c4 dataset instead of HuggingFace')
+    parser.add_argument('--local_path', type=str, default="small_c4",
+                        help='Path to local dataset (default: small_c4)')
     
     args = parser.parse_args()
     
@@ -501,7 +535,9 @@ def main():
             analyzer.process_dataset(
                 n_samples=args.n_samples,
                 max_seq_len=args.max_seq_len,
-                batch_size=args.batch_size
+                batch_size=args.batch_size,
+                use_local=args.local,
+                local_path=args.local_path
             )
             
             # Get metrics

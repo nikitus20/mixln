@@ -25,8 +25,19 @@ class PreprocessedIterableDataset(IterableDataset):
 
         batch = []
         for example in iter_data:
+            # Check if the dataset has 'text' field (standard C4 format)
+            if "text" in example:
+                text = example["text"]
+            # Check for common alternative field names
+            elif "content" in example:
+                text = example["content"]
+            else:
+                # Skip examples without a recognizable text field
+                print(f"Warning: Skipping example with unknown format. Available keys: {list(example.keys())}")
+                continue
+
             tokenized_example = self.tokenizer(
-                example["text"],
+                text,
                 max_length=self.max_length,
                 truncation=True,
                 padding="max_length",

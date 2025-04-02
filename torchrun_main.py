@@ -75,6 +75,16 @@ def parse_args(args):
     # disable ddp, single_gpu
     parser.add_argument("--single_gpu", default=False, action="store_true")
     
+    # Local dataset and tokenizer options
+    parser.add_argument("--use_local_dataset", action="store_true", default=False,
+                        help="Use local dataset instead of downloading from HuggingFace")
+    parser.add_argument("--local_dataset_path", type=str, default="small_c4",
+                        help="Path to local dataset directory")
+    parser.add_argument("--use_local_tokenizer", action="store_true", default=False,
+                        help="Use local tokenizer instead of downloading from HuggingFace")
+    parser.add_argument("--local_tokenizer_path", type=str, default="t5-base",
+                        help="Path to local tokenizer directory")
+    
     args = parser.parse_args(args)
 
     args = args_utils.check_args_torchrun_main(args)
@@ -82,10 +92,31 @@ def parse_args(args):
 
 
 @torch.no_grad()
-def evaluate_model(model, preprocess_batched, pad_idx, global_rank, world_size, device, batch_size):
+def evaluate_model(model, preprocess_batched, pad_idx, global_rank, world_size, device, batch_size, use_local_dataset=False, local_dataset_path=None):
     _time = time.time()
-    val_data = datasets.load_dataset("c4", "en", split="validation", streaming=True, trust_remote_code=True) #DGX
-    val_data = val_data.shuffle(seed=42)
+    
+    if use_local_dataset:
+        logger.info(f"Loading local validation dataset from {local_dataset_path}")
+        try:
+            val_data = datasets.load_dataset(
+                'arrow', 
+                data_files={
+                    'validation': f'{local_dataset_path}/validation/data-00000-of-00001.arrow'
+                },
+                split='validation'
+            )
+            # Convert to streaming dataset for consistency
+            val_data = val_data.to_iterable_dataset()
+            val_data = val_data.shuffle(seed=42)
+        except Exception as e:
+            logger.warning(f"Error loading local validation dataset: {str(e)}")
+            logger.warning("Falling back to HuggingFace C4 dataset")
+            val_data = datasets.load_dataset("c4", "en", split="validation", streaming=True, trust_remote_code=True)
+            val_data = val_data.shuffle(seed=42)
+    else:
+        val_data = datasets.load_dataset("c4", "en", split="validation", streaming=True, trust_remote_code=True)
+        val_data = val_data.shuffle(seed=42)
+    
     logger.info(f"Loaded validation dataset in {time.time() - _time:.2f} seconds")
 
     if not args.single_gpu:
@@ -94,7 +125,7 @@ def evaluate_model(model, preprocess_batched, pad_idx, global_rank, world_size, 
     val_data_mapped = val_data.map(
         preprocess_batched,
         batched=True,
-        remove_columns=["text", "timestamp", "url"],
+        remove_columns=["text", "timestamp", "url"] if not use_local_dataset else ["text"],
     )
     val_data_mapped.batch = lambda batch_size: training_utils.batch_fn(val_data_mapped, batch_size)
 
@@ -168,7 +199,27 @@ def main(args):
         logger.info(f"{k:30} {v}")
     logger.info("*" * 40)
 
-    data = datasets.load_dataset("allenai/c4", "en", split="train", streaming=True)
+    # Load dataset - either local or from HuggingFace
+    if args.use_local_dataset:
+        logger.info(f"Loading local training dataset from {args.local_dataset_path}")
+        try:
+            # Load from local path using arrow files
+            data = datasets.load_dataset(
+                'arrow', 
+                data_files={
+                    'train': f'{args.local_dataset_path}/train/data-00000-of-00001.arrow',
+                },
+                split="train"
+            )
+            # Convert to streaming dataset for consistency
+            data = data.to_iterable_dataset()
+        except Exception as e:
+            logger.warning(f"Error loading local training dataset: {str(e)}")
+            logger.warning("Falling back to HuggingFace C4 dataset")
+            data = datasets.load_dataset("allenai/c4", "en", split="train", streaming=True)
+    else:
+        # Load from HuggingFace
+        data = datasets.load_dataset("allenai/c4", "en", split="train", streaming=True)
 
     seed_for_shuffle = 32 
     
@@ -179,9 +230,18 @@ def main(args):
             data, rank=global_rank, world_size=world_size,
         )
 
-    # it doesn't matter which tokenizer we use, because we train from scratch
-    # T5 tokenizer was trained on C4 and we are also training on C4, so it's a good choice
-    tokenizer = AutoTokenizer.from_pretrained("t5-base", model_max_length=args.max_length)
+    # Load tokenizer - either local or from HuggingFace
+    if args.use_local_tokenizer:
+        logger.info(f"Loading local tokenizer from {args.local_tokenizer_path}")
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(args.local_tokenizer_path, model_max_length=args.max_length)
+        except Exception as e:
+            logger.warning(f"Error loading local tokenizer: {str(e)}")
+            logger.warning("Falling back to HuggingFace t5-base tokenizer")
+            tokenizer = AutoTokenizer.from_pretrained("t5-base", model_max_length=args.max_length)
+    else:
+        # Load from HuggingFace (t5-base was trained on C4 so it's a good choice)
+        tokenizer = AutoTokenizer.from_pretrained("t5-base", model_max_length=args.max_length)
 
     def preprocess_batched(batch):
         batch = tokenizer(
@@ -403,7 +463,7 @@ def main(args):
         if update_step % args.eval_every == 0:
             logger.info(f"Performing evaluation at step {update_step}")
             total_loss, evaluated_on_tokens = evaluate_model(
-                model, preprocess_batched, pad_idx, global_rank, world_size, device, args.batch_size
+                model, preprocess_batched, pad_idx, global_rank, world_size, device, args.batch_size, args.use_local_dataset, args.local_dataset_path
             )
             if global_rank == 0:
                 wandb.log({
@@ -477,7 +537,7 @@ def main(args):
     torch.cuda.empty_cache()
 
     total_loss, evaluated_on_tokens = evaluate_model(
-        model, preprocess_batched, pad_idx, global_rank, world_size, device, args.batch_size
+        model, preprocess_batched, pad_idx, global_rank, world_size, device, args.batch_size, args.use_local_dataset, args.local_dataset_path
     )
 
     if global_rank == 0:

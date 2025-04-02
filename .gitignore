@@ -9,6 +9,15 @@ _build
 # C extensions
 *.so
 
+# Dataset
+small_c4/
+
+# Tokenizer
+t5_tokenizer/
+
+# Analysis
+analysis*
+
 # tests and logs
 tests/fixtures/cached_*_text.txt
 logs/

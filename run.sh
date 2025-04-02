@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to run normalization analysis on Llama-71m model
-# Usage: ./run.sh [--samples N] [--batch B] [--seq-len LEN]
+# Usage: ./run.sh [--samples N] [--batch B] [--seq-len LEN] [--local]
 
 # Default parameters
 SAMPLES=30
@@ -10,6 +10,8 @@ MAX_SEQ_LEN=512
 DEVICE="cpu"  # Explicitly set to CPU
 MODEL_CONFIG="configs/llama_71m.json"
 MODEL_NAME="Llama-71M"
+USE_LOCAL=""
+LOCAL_PATH="small_c4"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -26,12 +28,23 @@ while [[ $# -gt 0 ]]; do
       MAX_SEQ_LEN="$2"
       shift 2
       ;;
+    --local)
+      USE_LOCAL="--local"
+      shift
+      ;;
+    --local-path)
+      LOCAL_PATH="$2"
+      USE_LOCAL="--local"
+      shift 2
+      ;;
     --help)
       echo "Usage: $0 [options]"
       echo "Options:"
       echo "  --samples N         Number of samples to process (default: 30)"
       echo "  --batch B           Batch size (default: 2)"
       echo "  --seq-len LEN       Maximum sequence length (default: 512)"
+      echo "  --local             Use local small_c4 dataset instead of HuggingFace"
+      echo "  --local-path PATH   Path to local dataset (default: small_c4)"
       echo "  --help              Show this help message"
       exit 0
       ;;
@@ -58,6 +71,9 @@ echo "Samples: $SAMPLES"
 echo "Batch size: $BATCH"
 echo "Save directory: $SAVE_DIR"
 echo "Device: $DEVICE"
+if [[ -n "$USE_LOCAL" ]]; then
+  echo "Using local dataset: $LOCAL_PATH"
+fi
 echo "========================================================"
 
 # Run analyses sequentially
@@ -69,7 +85,8 @@ python analyzer.py \
   --batch_size "$BATCH" \
   --save_dir "$SAVE_DIR" \
   --device "$DEVICE" \
-  --norm_type "pre"
+  --norm_type "pre" \
+  $USE_LOCAL --local_path "$LOCAL_PATH"
 
 echo "Running analysis with Post-LN..."
 python analyzer.py \
@@ -79,7 +96,8 @@ python analyzer.py \
   --batch_size "$BATCH" \
   --save_dir "$SAVE_DIR" \
   --device "$DEVICE" \
-  --norm_type "post"
+  --norm_type "post" \
+  $USE_LOCAL --local_path "$LOCAL_PATH"
 
 echo "Running analysis with Mix-LN (3)..."
 python analyzer.py \
@@ -90,7 +108,8 @@ python analyzer.py \
   --save_dir "$SAVE_DIR" \
   --device "$DEVICE" \
   --norm_type "post_pre" \
-  --post_num 3
+  --post_num 3 \
+  $USE_LOCAL --local_path "$LOCAL_PATH"
 
 echo "Running analysis with Mix-LN (6)..."
 python analyzer.py \
@@ -101,7 +120,8 @@ python analyzer.py \
   --save_dir "$SAVE_DIR" \
   --device "$DEVICE" \
   --norm_type "post_pre" \
-  --post_num 6
+  --post_num 6 \
+  $USE_LOCAL --local_path "$LOCAL_PATH"
 
 echo "Running analysis with DeepPost..."
 python analyzer.py \
@@ -111,7 +131,8 @@ python analyzer.py \
   --batch_size "$BATCH" \
   --save_dir "$SAVE_DIR" \
   --device "$DEVICE" \
-  --norm_type "deeppost"
+  --norm_type "deeppost" \
+  $USE_LOCAL --local_path "$LOCAL_PATH"
 
 echo "Running analysis with Sandwich..."
 python analyzer.py \
@@ -121,7 +142,8 @@ python analyzer.py \
   --batch_size "$BATCH" \
   --save_dir "$SAVE_DIR" \
   --device "$DEVICE" \
-  --norm_type "sandwich"
+  --norm_type "sandwich" \
+  $USE_LOCAL --local_path "$LOCAL_PATH"
 
 echo "All analyses complete!"
 
